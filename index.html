@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Shadow Dungeon: Arcane Legacies</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&display=swap');
+        body { margin: 0; padding: 0; background: #020617; color: white; font-family: 'Inter', sans-serif; overflow: hidden; touch-action: none; }
+        #game-container { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+        canvas { display: block; background: #020617; }
+        .glass-panel { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8); }
+        .hotbar-slot { width: 54px; height: 54px; border: 2px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.03); border-radius: 12px; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; pointer-events: auto; }
+        .hotbar-slot.active { border-color: #60a5fa; background: rgba(96, 165, 250, 0.2); transform: scale(1.1); box-shadow: 0 0 20px rgba(96, 165, 250, 0.4); }
+        .slot-key { position: absolute; top: -8px; left: -8px; background: #1e293b; font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid rgba(255,255,255,0.1); }
+        .cooldown-overlay { position: absolute; bottom: 0; left: 0; width: 100%; background: rgba(0, 0, 0, 0.7); height: 0%; border-radius: 0 0 10px 10px; }
+        #ui-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        .bar-bg { width: 220px; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; }
+        #health-fill { width: 100%; height: 100%; background: #ef4444; transition: width 0.3s ease; }
+        #mana-fill { width: 100%; height: 100%; background: #3b82f6; transition: width 0.1s linear; }
+        #dialog-box { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateY(0); opacity: 1; z-index: 50; }
+        #dialog-box.hidden { transform: translateY(20px); opacity: 0; display: none !important; }
+        .speaker-name { font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; font-size: 10px; margin-bottom: 4px; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-overlay">
+        <!-- HUD -->
+        <div id="hud" class="absolute top-6 left-6 hidden">
+            <div class="flex flex-col gap-3">
+                <div class="flex items-center gap-4">
+                    <div class="text-[10px] uppercase font-bold text-slate-400 w-12">Vitality</div>
+                    <div class="bar-bg"><div id="health-fill"></div></div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="text-[10px] uppercase font-bold text-slate-400 w-12">Arcane</div>
+                    <div class="bar-bg"><div id="mana-fill"></div></div>
+                </div>
+                <div class="text-2xl font-black italic tracking-tighter text-white mt-2" id="score-display">000000</div>
+            </div>
+        </div>
+
+        <!-- PARTY UI -->
+        <div id="party-ui" class="absolute top-6 right-6 flex flex-col gap-2 items-end hidden">
+            <div class="text-[9px] uppercase tracking-widest text-slate-500 font-bold mb-1">Your Party</div>
+            <div id="party-list" class="flex flex-col gap-2"></div>
+        </div>
+
+        <!-- BOSS HEALTH -->
+        <div id="boss-ui" class="absolute top-10 left-1/2 -translate-x-1/2 w-96 hidden">
+            <div class="text-center mb-2">
+                <div class="text-[10px] uppercase tracking-[0.5em] text-red-500 font-black">Void Engine: Mk. I</div>
+            </div>
+            <div class="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-white/10">
+                <div id="boss-health-fill" class="h-full bg-red-600 transition-all duration-200"></div>
+            </div>
+        </div>
+
+        <!-- DIALOG -->
+        <div id="dialog-box" class="glass-panel absolute bottom-32 left-1/2 -translate-x-1/2 p-6 w-[450px] hidden pointer-events-auto">
+            <div id="speaker" class="speaker-name text-blue-400">???</div>
+            <div id="dialog-text" class="text-sm leading-relaxed text-slate-200">...</div>
+            <div class="text-[9px] mt-4 opacity-40 font-bold tracking-widest text-center">PRESS [F] TO CONTINUE</div>
+        </div>
+
+        <!-- HOTBAR -->
+        <div id="hotbar-container" class="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-3 hidden">
+            <div class="hotbar-slot active" data-index="0"><span class="slot-key">1</span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg><div class="cooldown-overlay" id="cd-0"></div></div>
+            <div class="hotbar-slot" data-index="1"><span class="slot-key">2</span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg><div class="cooldown-overlay" id="cd-1"></div></div>
+            <div class="hotbar-slot" data-index="2"><span class="slot-key">3</span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.5"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="4"/></svg><div class="cooldown-overlay" id="cd-2"></div></div>
+            <div class="hotbar-slot" data-index="3"><span class="slot-key">4</span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg><div class="cooldown-overlay" id="cd-3"></div></div>
+            <div class="hotbar-slot" data-index="4"><span class="slot-key">5</span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f472b6" stroke-width="2.5"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg><div class="cooldown-overlay" id="cd-4"></div></div>
+            <div class="hotbar-slot" data-index="5"><span class="slot-key">6</span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg><div class="cooldown-overlay" id="cd-5"></div></div>
+        </div>
+
+        <!-- MENUS -->
+        <div id="main-menu" class="glass-panel absolute p-12 flex flex-col items-center gap-8 pointer-events-auto">
+            <div class="text-center">
+                <h1 class="text-6xl font-black italic tracking-tighter mb-2 text-white">CHRONOS</h1>
+                <p class="text-[10px] opacity-50 uppercase tracking-[0.4em]">The Shattered Dimension</p>
+            </div>
+            <button id="start-btn" class="bg-blue-600 hover:bg-blue-500 px-16 py-4 rounded-full font-bold text-white transition-all transform hover:scale-105 active:scale-95">INITIATE ASCENSION</button>
+        </div>
+
+        <div id="game-over" class="glass-panel absolute p-12 flex flex-col items-center gap-6 pointer-events-auto hidden">
+            <h2 class="text-4xl font-black text-red-500 italic">TIMELINE SEVERED</h2>
+            <div id="final-stats" class="text-xl font-mono text-slate-400"></div>
+            <button id="retry-btn" class="bg-slate-700 hover:bg-slate-600 px-12 py-4 rounded-full font-bold w-full">RESTART CYCLE</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const GRAVITY = 0.48;
+const FRICTION = 0.84;
+const PLAYER_SPEED = 5.8;
+const JUMP_FORCE = -11;
+const MAX_MANA = 100;
+
+let gameState = 'MENU';
+let score = 0;
+let frameCount = 0;
+let camera = { x: 0, y: 0 };
+let mousePos = { x: 0, y: 0 };
+let shake = 0;
+let selectedSpellIndex = 0;
+let lastGeneratedX = 0;
+
+// Game Entities
+let player = null;
+let bossInstance = null;
+let party = []; 
+
+let platforms = [];
+let enemies = [];
+let bullets = [];
+let particles = [];
+let effects = [];
+let turrets = [];
+let shards = [];
+let bgStars = [];
+let bgPlanets = [];
+let ambients = []; // Array for birds, tumbleweeds, snow
+let nextBossScore = 3200;
+
+// Story State
+let storyProgress = 0;
+const storyLine = [
+    { score: 0, speaker: "ECHO", text: "Welcome back, Wanderer. I am Echo, your familiar. Use your magic to carve a path forward." },
+    { score: 100, speaker: "VIVI", text: "Hey! You're awake. This place is dangerous... I'm coming with you. Don't worry, I'll scout ahead!" },
+    { score: 500, speaker: "ELDER THORNE", text: "The ancient pulse guides me to you. This dimension is fractured, but we can mend it together." },
+    { score: 1500, speaker: "LYRA", text: "Finally, someone who knows how to fight. Enough talk—let's bring this engine down." },
+    { score: 2200, speaker: "KAEL", text: "Hold the line! My shield-core is depleted, but my heavy cannon still works. I'm with you!" },
+    { score: 3200, speaker: "ECHO", text: "Wait! I sense a massive energy spike... the Void Engine is activating!" },
+    { score: 6000, speaker: "ECHO", text: "The Engine is silenced. The path ahead is long, but you no longer walk it alone." },
+    { score: 13800, speaker: "NYX", text: "You've survived the deep void... impressive. I am Nyx, the Umbral Assassin. Let us finish this." }
+];
+
+const keys = {};
+window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+    
+    if (e.code === 'KeyF') {
+        if (gameState === 'DIALOG') {
+            advanceDialog();
+        }
+    }
+
+    if (gameState === 'PLAYING' && player) {
+        if (e.code.startsWith('Digit')) selectSpell(parseInt(e.code.slice(-1)) - 1);
+        if (e.code === 'KeyE') player.castAbility();
+    }
+});
+
+window.addEventListener('keyup', e => keys[e.code] = false);
+window.addEventListener('mousemove', e => { mousePos.x = e.clientX; mousePos.y = e.clientY; });
+window.addEventListener('mousedown', () => { if(gameState === 'PLAYING') keys['Mouse0'] = true; });
+window.addEventListener('mouseup', () => keys['Mouse0'] = false);
+
+function selectSpell(index) {
+    if (index < 0 || index > 5) return;
+    selectedSpellIndex = index;
+    document.querySelectorAll('.hotbar-slot').forEach((s, i) => s.classList.toggle('active', i === index));
+}
+
+function triggerDialog(speaker, text) {
+    const dialogBox = document.getElementById('dialog-box');
+    document.getElementById('speaker').innerText = speaker;
+    document.getElementById('dialog-text').innerText = text;
+    dialogBox.classList.remove('hidden');
+    gameState = 'DIALOG';
+    Object.keys(keys).forEach(k => keys[k] = false);
+}
+
+function updatePartyUI() {
+    const list = document.getElementById('party-list');
+    list.innerHTML = '';
+    party.forEach(member => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center gap-2 bg-slate-900/60 p-2 rounded-lg border border-white/5 w-32';
+        div.innerHTML = `
+            <div class="w-2 h-2 rounded-full" style="background: ${member.color}"></div>
+            <div class="text-[10px] font-bold text-slate-300 uppercase">${member.name}</div>
+        `;
+        list.appendChild(div);
+    });
+    document.getElementById('party-ui').classList.toggle('hidden', party.length === 0);
+}
+
+function advanceDialog() {
+    document.getElementById('dialog-box').classList.add('hidden');
+    gameState = 'PLAYING';
+    
+    const lastStory = storyLine[storyProgress - 1];
+    if (lastStory) {
+        if (lastStory.speaker === "VIVI" && !party.find(m => m.name === "VIVI")) {
+            party.push(new Companion("VIVI", "#fbbf24", 1));
+        } else if (lastStory.speaker === "ELDER THORNE" && !party.find(m => m.name === "THORNE")) {
+            party.push(new Companion("THORNE", "#34d399", 2));
+            player.health = Math.min(100, player.health + 50);
+            spawnParticles(player.x, player.y, "#34d399", 30);
+        } else if (lastStory.speaker === "LYRA" && !party.find(m => m.name === "LYRA")) {
+            party.push(new Companion("LYRA", "#f472b6", 3));
+        } else if (lastStory.speaker === "KAEL" && !party.find(m => m.name === "KAEL")) {
+            party.push(new Companion("KAEL", "#f97316", 4));
+        } else if (lastStory.speaker === "NYX" && !party.find(m => m.name === "NYX")) {
+            party.push(new Companion("NYX", "#a855f7", 5));
+        }
+        updatePartyUI();
+    }
+    
+    setTimeout(checkStory, 100);
+}
+
+function checkStory() {
+    if (gameState === 'DIALOG') return; 
+    const next = storyLine[storyProgress];
+    if (next && score >= next.score) {
+        triggerDialog(next.speaker, next.text);
+        storyProgress++;
+    }
+}
+
+class Particle {
+    constructor(x, y, vx, vy, color, life, size = 3) {
+        this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+        this.color = color; this.maxLife = life; this.life = life; this.size = size;
+    }
+    update() { this.x += this.vx; this.y += this.vy; this.life--; }
+    draw(ctx) {
+        ctx.globalAlpha = this.life / this.maxLife;
+        ctx.fillStyle = this.color;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI*2); ctx.fill();
+        ctx.globalAlpha = 1;
+    }
+}
+
+class SpellEffect {
+    constructor(x, y, type, color) {
+        this.x = x; this.y = y; this.type = type; this.color = color;
+        this.radius = 0; this.maxRadius = type === 'boss-nova' ? 400 : 160; this.life = 40;
+    }
+    update() {
+        this.life--;
+        this.radius += (this.maxRadius - this.radius) * 0.12;
+        if (this.type === 'shockwave' || this.type === 'nova') {
+            enemies.forEach(e => {
+                if (Math.hypot(e.x - this.x, e.y - this.y) < this.radius) {
+                    e.takeDamage(this.type === 'nova' ? 0.3 : 3);
+                    if (this.type === 'nova') e.speed = 0.4;
+                }
+            });
+            if (bossInstance && Math.hypot(bossInstance.x - this.x, bossInstance.y - this.y) < this.radius) bossInstance.takeDamage(1);
+        }
+        if (this.type === 'boss-nova' && player && Math.hypot(player.x - this.x, player.y - this.y) < this.radius && player.invuln <= 0) {
+            player.health -= 20; player.invuln = 45; shake = 15;
+        }
+    }
+    draw(ctx) {
+        ctx.save();
+        ctx.strokeStyle = this.color; ctx.lineWidth = 5 * (this.life / 40);
+        ctx.shadowBlur = 25; ctx.shadowColor = this.color;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.stroke();
+        ctx.restore();
+    }
+}
+
+class Shard {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.baseY = y;
+        this.offset = Math.random() * Math.PI * 2;
+        this.collected = false;
+    }
+    update() {
+        this.y = this.baseY + Math.sin(frameCount * 0.05 + this.offset) * 8;
+        if (player && !this.collected) {
+            if (Math.hypot(this.x - player.x, this.y - player.y) < 40) {
+                this.collected = true;
+                score += 50;
+                player.mana = Math.min(MAX_MANA, player.mana + 15);
+                spawnParticles(this.x, this.y, '#fbbf24', 15);
+                checkStory();
+            }
+        }
+    }
+    draw(ctx) {
+        if (this.collected) return;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(frameCount * 0.02);
+        ctx.fillStyle = '#fbbf24';
+        ctx.shadowBlur = 15; ctx.shadowColor = '#fbbf24';
+        ctx.beginPath();
+        ctx.moveTo(0, -10); ctx.lineTo(8, 0); ctx.lineTo(0, 10); ctx.lineTo(-8, 0);
+        ctx.closePath(); ctx.fill();
+        ctx.restore();
+    }
+}
+
+class Companion {
+    constructor(name, color, order) {
+        this.name = name;
+        this.color = color;
+        this.order = order; 
+        this.w = this.name === "ECHO" ? 10 : 26;
+        this.h = this.name === "ECHO" ? 10 : 42;
+        this.x = player ? player.x : 0;
+        this.y = player ? player.y : 0;
+        this.vx = 0;
+        this.vy = 0;
+        this.grounded = false;
+        this.shootCd = 0;
+        this.floatOffset = Math.random() * Math.PI * 2;
+    }
+    update(platforms) {
+        if (!player) return;
+        
+        // Safety snap if the companion gets left too far behind or falls in the void
+        if (Math.hypot(player.x - this.x, player.y - this.y) > 1200 || this.y > 1500) {
+            this.x = player.x;
+            this.y = player.y - 20;
+            this.vx = this.vy = 0;
+        }
+
+        // Echo directly orbits the player, others use platforming logic
+        if (this.name === "ECHO") {
+            const targetX = player.x + Math.cos(frameCount * 0.03) * 45;
+            const targetY = player.y - 15 + Math.sin(frameCount * 0.04) * 25;
+            this.x += (targetX - this.x) * 0.15;
+            this.y += (targetY - this.y) * 0.15;
+        } else {
+            // Walking logic for ground companions
+            let followTarget = player;
+            if (this.order > 1) {
+                let targetCompanion = party.find(p => p.order === this.order - 1 && p.name !== "ECHO");
+                if (targetCompanion) followTarget = targetCompanion;
+            }
+            
+            let targetDist = followTarget.x - this.x;
+            
+            // Move horizontally if too far
+            if (Math.abs(targetDist) > 50) {
+                this.vx = Math.sign(targetDist) * (PLAYER_SPEED * 0.85);
+            } else {
+                this.vx = 0;
+            }
+
+            let oldX = this.x;
+            this.vy += GRAVITY;
+            this.x += this.vx;
+            
+            // X Collision
+            for (let p of platforms) {
+                if (this.x < p.x + p.w && this.x + this.w > p.x && this.y < p.y + p.h && this.y + this.h > p.y) {
+                    if (this.vx > 0) this.x = p.x - this.w;
+                    else if (this.vx < 0) this.x = p.x + p.w;
+                }
+            }
+
+            // Gap detection
+            let gapAhead = true;
+            let lookX = this.x + this.w/2 + Math.sign(this.vx) * 60;
+            for (let p of platforms) {
+                if (lookX >= p.x && lookX <= p.x + p.w && this.y + this.h + 150 >= p.y && this.y + this.h - 50 <= p.y + p.h) {
+                    gapAhead = false;
+                    break;
+                }
+            }
+            if (Math.abs(this.vx) < 1) gapAhead = false;
+
+            // Jump logic: If blocked horizontally OR target is much higher OR gap ahead
+            if (this.grounded) {
+                let isBlocked = (Math.abs(this.vx) > 0.1 && Math.abs(this.x - oldX) < 0.1);
+                let targetIsHigher = followTarget.y < this.y - 45;
+                let targetJumping = (followTarget.vy < -3 && Math.abs(followTarget.x - this.x) < 120);
+                
+                if (isBlocked || targetIsHigher || gapAhead || targetJumping) {
+                    this.vy = JUMP_FORCE * 1.05;
+                    this.grounded = false;
+                }
+            }
+
+            this.y += this.vy;
+            this.grounded = false;
+            
+            // Y Collision
+            for (let p of platforms) {
+                if (this.x < p.x + p.w && this.x + this.w > p.x && this.y < p.y + p.h && this.y + this.h > p.y) {
+                    if (this.vy > 0) {
+                        this.y = p.y - this.h;
+                        this.grounded = true;
+                    } else if (this.vy < 0) {
+                        this.y = p.y + p.h;
+                    }
+                    this.vy = 0;
+                }
+            }
+        }
+        
+        // Combat Logic
+        if (this.shootCd > 0) this.shootCd--;
+        else {
+            let range = this.name === "VIVI" ? 350 : (this.name === "THORNE" ? 400 : (this.name === "KAEL" ? 450 : (this.name === "NYX" ? 500 : (this.name === "ECHO" ? 300 : 550))));
+            let target = enemies.find(e => Math.hypot(e.x - this.x, e.y - this.y) < range) || (bossInstance && Math.hypot(bossInstance.x - this.x, bossInstance.y - this.y) < 700 ? bossInstance : null);
+            
+            if (target) {
+                const angle = Math.atan2(target.y - this.y, target.x - this.x);
+                let bType = this.name === "VIVI" ? "scout" : (this.name === "THORNE" ? "nature" : (this.name === "KAEL" ? "heavy" : (this.name === "NYX" ? "pierce" : (this.name === "ECHO" ? "echo" : "strike"))));
+                let bSpeed = this.name === "KAEL" ? 8 : (this.name === "NYX" ? 18 : (this.name === "ECHO" ? 15 : 11));
+                bullets.push({ 
+                    x: this.x + this.w/2, y: this.y + this.h/2, 
+                    vx: Math.cos(angle)*bSpeed, vy: Math.sin(angle)*bSpeed, 
+                    life: 60, color: this.color, type: bType 
+                });
+                this.shootCd = this.name === "VIVI" ? 35 : (this.name === "THORNE" ? 60 : (this.name === "KAEL" ? 80 : (this.name === "NYX" ? 25 : (this.name === "ECHO" ? 40 : 50))));
+            }
+        }
+    }
+    draw(ctx) {
+        ctx.save();
+        
+        // Adjust translation based on if it's echo (centered) or walking (corner-based)
+        if (this.name === "ECHO") {
+            ctx.translate(this.x, this.y);
+        } else {
+            ctx.translate(this.x + this.w/2, this.y + this.h/2);
+            // Tilt while walking
+            ctx.rotate(this.vx * 0.05);
+        }
+        
+        ctx.shadowBlur = 15; ctx.shadowColor = this.color;
+        ctx.fillStyle = this.color;
+        
+        if (this.name === "ECHO") {
+            ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(0, 0, 2, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = this.color;
+            let a1 = frameCount * 0.1;
+            ctx.beginPath(); ctx.arc(Math.cos(a1)*10, Math.sin(a1)*10, 2, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(Math.cos(a1 + Math.PI)*10, Math.sin(a1 + Math.PI)*10, 2, 0, Math.PI*2); ctx.fill();
+        } else if (this.name === "VIVI") {
+            ctx.beginPath();
+            ctx.moveTo(0, -21); ctx.lineTo(13, 0); ctx.lineTo(0, 21); ctx.lineTo(-13, 0); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(0, -5, 4, 0, Math.PI*2); ctx.fill();
+        } else if (this.name === "THORNE") {
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 13, 21, 0, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 2; ctx.stroke();
+            ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(0, -8, 3, 0, Math.PI*2); ctx.fill();
+        } else if (this.name === "LYRA") {
+            ctx.beginPath();
+            ctx.moveTo(0, -21); ctx.lineTo(-13, 21); ctx.lineTo(13, 21); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(0, 4, 4, 0, Math.PI*2); ctx.fill();
+        } else if (this.name === "KAEL") {
+            ctx.beginPath();
+            ctx.roundRect(-13, -21, 26, 42, 6); ctx.fill();
+            ctx.fillStyle = "white"; ctx.fillRect(-8, -8, 16, 5);
+        } else if (this.name === "NYX") {
+            ctx.beginPath();
+            ctx.moveTo(0, -22); ctx.lineTo(10, 0); ctx.lineTo(0, 22); ctx.lineTo(-10, 0); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(0, -4, 3, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
+class Player {
+    constructor() {
+        this.x = 200; this.y = 300; this.w = 26; this.h = 42;
+        this.vx = 0; this.vy = 0; this.health = 100; this.mana = 100;
+        this.invuln = 0; this.jumps = 0; this.shootCd = 0;
+        this.lastSafePos = { x: 200, y: 300 }; 
+        this.abilities = [
+            { cd: 0, maxCd: 90, manaCost: 20, color: '#fbbf24' },
+            { cd: 0, maxCd: 80, manaCost: 30, color: '#a78bfa' },
+            { cd: 0, maxCd: 120, manaCost: 25, color: '#60a5fa' },
+            { cd: 0, maxCd: 350, manaCost: 45, color: '#34d399' },
+            { cd: 0, maxCd: 250, manaCost: 40, color: '#f472b6' },
+            { cd: 0, maxCd: 600, manaCost: 50, color: '#10b981' }
+        ];
+        this.overdrive = 0;
+    }
+    update() {
+        if (gameState !== 'PLAYING') return;
+
+        if (keys['KeyA'] || keys['ArrowLeft']) this.vx = -PLAYER_SPEED;
+        if (keys['KeyD'] || keys['ArrowRight']) this.vx = PLAYER_SPEED;
+        if ((keys['Space'] || keys['KeyW']) && this.jumps < 2) {
+            this.vy = JUMP_FORCE; this.jumps++; keys['Space'] = keys['KeyW'] = false;
+        }
+        
+        this.vy += GRAVITY; 
+        this.x += this.vx; this.checkCol('x'); 
+        this.y += this.vy; this.checkCol('y');
+        this.vx *= FRICTION;
+        
+        if (this.y > 1500) {
+            this.health -= 15;
+            this.x = this.lastSafePos.x - this.w / 2; 
+            this.y = this.lastSafePos.y - this.h - 10; 
+            this.vx = 0; this.vy = 0; shake = 20;
+            spawnParticles(this.x + this.w/2, this.y + this.h/2, '#a78bfa', 30);
+        }
+
+        if (this.mana < MAX_MANA) this.mana += 0.3;
+        if (this.overdrive > 0) this.overdrive--;
+
+        if (keys['Mouse0'] && this.shootCd <= 0) this.shoot();
+        if (this.shootCd > 0) this.shootCd--;
+        if (this.invuln > 0) this.invuln--;
+        this.abilities.forEach((a) => { if (a.cd > 0) a.cd--; });
+    }
+    checkCol(axis) {
+        for (let p of platforms) {
+            if (this.x < p.x + p.w && this.x + this.w > p.x && this.y < p.y + p.h && this.y + this.h > p.y) {
+                if (axis === 'x') { this.x = this.vx > 0 ? p.x - this.w : p.x + p.w; this.vx = 0; }
+                else { 
+                    if (this.vy > 0) { 
+                        this.y = p.y - this.h; 
+                        this.jumps = 0; 
+                        this.lastSafePos = { x: p.x + p.w / 2, y: p.y }; 
+                    }
+                    else { this.y = p.y + p.h; }
+                    this.vy = 0; 
+                }
+            }
+        }
+    }
+    shoot() {
+        const angle = Math.atan2((mousePos.y + camera.y) - (this.y + this.h/2), (mousePos.x + camera.x) - (this.x + this.w/2));
+        bullets.push({ x: this.x+this.w/2, y: this.y+this.h/2, vx: Math.cos(angle)*14, vy: Math.sin(angle)*14, life: 60, color: '#60a5fa', type: 'bolt' });
+        this.shootCd = this.overdrive > 0 ? 4 : 12;
+    }
+    castAbility() {
+        const s = this.abilities[selectedSpellIndex];
+        if (s.cd <= 0 && this.mana >= s.manaCost) {
+            this.mana -= s.manaCost; s.cd = s.maxCd; shake = 8;
+            if (selectedSpellIndex === 0) effects.push(new SpellEffect(this.x+this.w/2, this.y+this.h/2, 'shockwave', s.color));
+            if (selectedSpellIndex === 1) {
+                const oldX = this.x, oldY = this.y;
+                let tx = (mousePos.x + camera.x) - this.w/2, ty = (mousePos.y + camera.y) - this.h/2;
+                let checks = 0;
+                while (platforms.some(p => tx < p.x+p.w && tx+this.w > p.x && ty < p.y+p.h && ty+this.h > p.y) && checks < 50) { ty -= 12; checks++; }
+                this.x = tx; this.y = ty; this.vx = this.vy = 0;
+                spawnParticles(oldX+this.w/2, oldY+this.h/2, s.color, 15);
+                effects.push(new SpellEffect(oldX+this.w/2, oldY+this.h/2, 'shockwave', s.color));
+            }
+            if (selectedSpellIndex === 2) {
+                const angle = Math.atan2((mousePos.y + camera.y) - (this.y+this.h/2), (mousePos.x + camera.x) - (this.x+this.w/2));
+                bullets.push({ x: this.x+this.w/2, y: this.y+this.h/2, vx: Math.cos(angle)*8, vy: Math.sin(angle)*8, life: 100, color: '#bae6fd', type: 'frost' });
+            }
+            if (selectedSpellIndex === 3) turrets.push({ x: this.x, y: this.y, life: 600, cd: 0 });
+            if (selectedSpellIndex === 4) { this.overdrive = 300; spawnParticles(this.x, this.y, s.color, 20); }
+            if (selectedSpellIndex === 5) { 
+                this.health = Math.min(100, this.health + 40); 
+                spawnParticles(this.x + this.w/2, this.y + this.h/2, s.color, 40);
+                effects.push(new SpellEffect(this.x + this.w/2, this.y + this.h/2, 'heal', s.color));
+            }
+        }
+    }
+    draw(ctx) {
+        if (this.invuln > 0 && frameCount % 4 < 2) return;
+        ctx.save();
+        ctx.translate(this.x + this.w/2, this.y + this.h/2);
+        if (selectedSpellIndex === 1) {
+            ctx.restore(); ctx.save(); ctx.translate(-camera.x, -camera.y);
+            ctx.strokeStyle = '#a78bfa'; ctx.lineWidth = 1; ctx.setLineDash([5,5]);
+            ctx.strokeRect(mousePos.x+camera.x-this.w/2, mousePos.y+camera.y-this.h/2, this.w, this.h);
+            ctx.restore(); ctx.save(); ctx.translate(this.x + this.w/2, this.y + this.h/2);
+        }
+        ctx.rotate(this.vx * 0.04);
+        ctx.fillStyle = this.overdrive > 0 ? '#f472b6' : '#3b82f6';
+        ctx.shadowBlur = 20; ctx.shadowColor = ctx.fillStyle;
+        ctx.beginPath(); ctx.roundRect(-this.w/2, -this.h/2, this.w, this.h, 4); ctx.fill();
+        ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(0, -10, 4, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+    }
+}
+
+class Enemy {
+    constructor(x, y, type = 'melee') {
+        this.x = x; this.y = y; this.w = 32; this.h = 32; this.vx = 0; this.vy = 0;
+        this.health = type === 'ranged' ? 1.5 : 3; this.type = type;
+        this.speed = (type === 'ranged' ? 0.9 : 1.6) + Math.random();
+        this.dir = Math.random() > 0.5 ? 1 : -1; this.shootCd = 100;
+    }
+    update() {
+        this.vx = this.speed * this.dir; this.vy += GRAVITY;
+        this.x += this.vx; this.y += this.vy;
+        let onEdge = true;
+        for(let p of platforms) { if (this.x < p.x + p.w && this.x + this.w > p.x && this.y < p.y + p.h && this.y + this.h > p.y) { this.y = p.y - this.h; this.vy = 0; onEdge = false; } }
+        if (onEdge) this.dir *= -1;
+        if (this.type === 'ranged' && player) {
+            this.shootCd--;
+            if (this.shootCd <= 0 && Math.abs(player.x - this.x) < 600) {
+                const angle = Math.atan2(player.y - this.y, player.x - this.x);
+                bullets.push({ x: this.x+16, y: this.y+16, vx: Math.cos(angle)*7, vy: Math.sin(angle)*7, life: 100, color: '#f43f5e', type: 'enemy' });
+                this.shootCd = 130;
+            }
+        }
+        if (player && Math.hypot(this.x-player.x, this.y-player.y) < 30 && player.invuln <= 0) {
+            player.health -= 15; player.invuln = 50; shake = 10;
+        }
+    }
+    takeDamage(dmg) {
+        this.health -= dmg;
+        if (this.health <= 0) { 
+            score += 100; 
+            spawnParticles(this.x+16, this.y+16, '#f43f5e', 8); 
+            enemies = enemies.filter(e => e !== this); 
+            checkStory(); 
+        }
+    }
+    draw(ctx) {
+        ctx.fillStyle = this.type === 'melee' ? '#f43f5e' : '#fb7185';
+        ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle;
+        ctx.beginPath(); ctx.roundRect(this.x, this.y, this.w, this.h, 4); ctx.fill();
+    }
+}
+
+class Boss {
+    constructor(x, y) {
+        this.x = x; this.y = y; this.w = 160; this.h = 160; this.maxHealth = 150; this.health = 150;
+        this.timer = 0;
+    }
+    update() {
+        if (!player) return;
+        this.timer++;
+        const bFill = document.getElementById('boss-health-fill');
+        if (bFill) bFill.style.width = (this.health/this.maxHealth*100) + '%';
+        
+        if (this.timer % 180 === 0) effects.push(new SpellEffect(this.x+80, this.y+80, 'boss-nova', '#ef4444'));
+        if (this.timer % 40 === 0) {
+            const angle = Math.atan2(player.y - (this.y+80), player.x - (this.x+80));
+            for(let i=-1; i<=1; i++) {
+                bullets.push({ x: this.x+80, y: this.y+80, vx: Math.cos(angle+i*0.3)*6, vy: Math.sin(angle+i*0.3)*6, life: 120, color: '#f87171', type: 'enemy' });
+            }
+        }
+        if (this.timer % 100 === 0) {
+            enemies.push(new Enemy(this.x + (Math.random()-0.5)*400, this.y - 100, 'melee'));
+        }
+    }
+    takeDamage(dmg) {
+        this.health -= dmg;
+        spawnParticles(this.x+80, this.y+80, '#ef4444', 3);
+        if (this.health <= 0) {
+            score += 3000; spawnParticles(this.x+80, this.y+80, '#ef4444', 60);
+            bossInstance = null; document.getElementById('boss-ui').classList.add('hidden');
+            checkStory();
+        }
+    }
+    draw(ctx) {
+        ctx.fillStyle = '#0f172a'; ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 4;
+        ctx.shadowBlur = 40; ctx.shadowColor = '#ef4444';
+        ctx.beginPath(); ctx.roundRect(this.x, this.y, this.w, this.h, 24); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ef4444'; ctx.beginPath(); ctx.arc(this.x+80, this.y+80, 20 + Math.sin(frameCount*0.1)*10, 0, Math.PI*2); ctx.fill();
+    }
+}
+
+function spawnParticles(x, y, color, count) {
+    for(let i=0; i<count; i++) particles.push(new Particle(x, y, (Math.random()-0.5)*12, (Math.random()-0.5)*12, color, 25+Math.random()*20));
+}
+
+const BIOMES = [
+    { name: 'VOID', top: '#334155', bot: '#1e293b', grass: '#065f46' },
+    { name: 'JUNGLE', top: '#3f6212', bot: '#1c1917', grass: '#166534' },
+    { name: 'DESERT', top: '#a16207', bot: '#451a03', grass: '#ca8a04' },
+    { name: 'TUNDRA', top: '#7dd3fc', bot: '#0c4a6e', grass: '#e0f2fe' }
+];
+
+function createDecor(w, isCeiling, isIsland = false, biomeName = 'VOID') {
+    let decoration = { vines: [], rocks: [], crystals: [], mushrooms: [], waterfalls: [], trees: [], bushes: [], cacti: [], skulls: [] };
+    
+    // Core Void/Shared Elements
+    if (biomeName === 'VOID' || Math.random() > 0.7) {
+        if (Math.random() > 0.6 && isIsland && biomeName !== 'DESERT' && biomeName !== 'TUNDRA') {
+            decoration.waterfalls.push({ relX: Math.random() * (w - 40) + 10, width: 20 + Math.random() * 30 });
+        }
+        if (Math.random() > 0.4 && !isCeiling) {
+            let crystalCount = Math.floor(Math.random() * 3) + 1;
+            let colors = ['#3b82f6', '#8b5cf6', '#10b981', '#f472b6', '#fbbf24'];
+            for(let c=0; c<crystalCount; c++) decoration.crystals.push({ relX: Math.random() * (w - 20) + 10, size: 18 + Math.random() * 30, color: colors[Math.floor(Math.random() * colors.length)] });
+        }
+        if (Math.random() > 0.3) {
+            let vineCount = Math.floor(Math.random() * (isCeiling ? 5 : 3)) + 1;
+            for(let v=0; v<vineCount; v++) decoration.vines.push({ relX: Math.random() * w, length: 40 + Math.random() * 80, segments: 5 + Math.floor(Math.random() * 5), offset: Math.random() * 10 });
+        }
+    }
+
+    // Rocks (Used as Ice Spikes in Tundra)
+    if (Math.random() > 0.4 || biomeName === 'TUNDRA') {
+        let rockCount = Math.floor(Math.random() * 3) + (biomeName === 'TUNDRA' ? 2 : 1);
+        for(let r=0; r<rockCount; r++) decoration.rocks.push({ relX: Math.random() * w, size: 15 + Math.random() * 30 });
+    }
+
+    // Jungle Elements
+    if (biomeName === 'JUNGLE') {
+        if (Math.random() > 0.1 && !isCeiling) {
+           for(let i=0; i<Math.floor(Math.random()*4)+1; i++) decoration.trees.push({relX: Math.random()*(w-40)+20, h: 40+Math.random()*50});
+        }
+        if (Math.random() > 0.2 && !isCeiling) {
+           for(let i=0; i<Math.floor(Math.random()*5)+1; i++) decoration.bushes.push({relX: Math.random()*(w-20)+10, s: 10+Math.random()*15});
+        }
+    }
+
+    // Desert Elements
+    if (biomeName === 'DESERT') {
+        if (Math.random() > 0.2 && !isCeiling) {
+           for(let i=0; i<Math.floor(Math.random()*3)+1; i++) decoration.cacti.push({relX: Math.random()*(w-40)+20, h: 30+Math.random()*40});
+        }
+        if (Math.random() > 0.5 && !isCeiling) {
+           decoration.skulls.push({relX: Math.random()*(w-20)+10});
+        }
+    }
+
+    // Mushrooms (Jungle/Void)
+    if (Math.random() > 0.5 && !isCeiling && (biomeName === 'VOID' || biomeName === 'JUNGLE')) {
+        let mushCount = Math.floor(Math.random() * 3) + 1;
+        let colors = ['#10b981', '#0ea5e9'];
+        for(let m=0; m<mushCount; m++) decoration.mushrooms.push({ relX: Math.random() * (w - 20) + 10, size: 8 + Math.random() * 8, color: colors[Math.floor(Math.random() * colors.length)] });
+    }
+    
+    decoration.hasGrass = Math.random() > 0.2 && !isCeiling;
+    return decoration;
+}
+
+class Ambient {
+    constructor(type, x, y) {
+        this.type = type; this.x = x; this.y = y; this.life = 800;
+        this.offset = Math.random() * 100;
+        if (type === 'bird') { this.vx = 4 + Math.random()*3; this.vy = (Math.random()-0.5)*0.5; }
+        if (type === 'tumbleweed') { this.vx = 2 + Math.random()*2; this.rot = 0; }
+        if (type === 'snow') { this.vx = (Math.random()-0.5)*2; this.vy = 2 + Math.random()*2; }
+    }
+    update() {
+        this.x += this.vx;
+        if (this.type === 'bird') this.y += this.vy + Math.sin((frameCount + this.offset)*0.1)*0.5;
+        if (this.type === 'tumbleweed') { this.rot += 0.1; }
+        if (this.type === 'snow') { this.y += this.vy; this.x += Math.sin((frameCount + this.offset)*0.02); }
+        this.life--;
+    }
+    draw(ctx) {
+        ctx.save(); ctx.translate(this.x, this.y);
+        if (this.type === 'bird') {
+            ctx.fillStyle = '#0f172a';
+            let flap = Math.sin((frameCount + this.offset) * 0.3) * 5;
+            ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-8, -flap); ctx.lineTo(-4, 0); ctx.lineTo(-8, flap); ctx.closePath(); ctx.fill();
+        }
+        if (this.type === 'tumbleweed') {
+            let bounce = Math.abs(Math.sin((frameCount + this.offset) * 0.1)) * 20;
+            ctx.translate(0, -bounce);
+            ctx.rotate(this.rot);
+            ctx.strokeStyle = '#92400e'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.arc(0,0, 10, 0, Math.PI*2); ctx.stroke();
+            ctx.beginPath(); ctx.arc(0,0, 8, 0, Math.PI*2); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(-8, -2); ctx.lineTo(8, 2); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(-2, -8); ctx.lineTo(2, 8); ctx.stroke();
+        }
+        if (this.type === 'snow') {
+            ctx.fillStyle = 'rgba(255,255,255,0.8)';
+            ctx.beginPath(); ctx.arc(0,0, 2, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
+function generateChunks() {
+    if (!player) return;
+    if (player.x + 1500 > lastGeneratedX) {
+        let chunkType = Math.random();
+        let lastY = platforms[platforms.length - 1]?.y || 500;
+        let biomeIndex = Math.floor(lastGeneratedX / 10000) % BIOMES.length;
+        let currentBiome = BIOMES[biomeIndex];
+        
+        if (chunkType < 0.25) {
+            // Biome 1: Arena Chunk
+            let w = 1000 + Math.random() * 600;
+            let gap = 150 + Math.random() * 100;
+            let y = Math.max(300, Math.min(800, lastY + (Math.random() - 0.5) * 200));
+            
+            lastGeneratedX += gap;
+            platforms.push({ x: lastGeneratedX, y: y, w: w, h: 45, isSolidFloor: true, biome: currentBiome, decor: createDecor(w, false, false, currentBiome.name) });
+            
+            for(let e=0; e<5; e++) {
+                if (Math.random() > 0.3) enemies.push(new Enemy(lastGeneratedX + 100 + Math.random() * (w-200), y - 40, Math.random() > 0.5 ? 'ranged' : 'melee'));
+            }
+            if (Math.random() > 0.2) shards.push(new Shard(lastGeneratedX + w/2, y - 60));
+            
+            lastGeneratedX += w;
+
+        } else if (chunkType < 0.55) {
+            // Biome 2: Cave Chunk
+            let gap = 120 + Math.random() * 80;
+            lastGeneratedX += gap;
+            
+            let caveLen = 3 + Math.floor(Math.random() * 4);
+            for(let i=0; i<caveLen; i++) {
+                let w = 300 + Math.random() * 200;
+                let innerGap = 80 + Math.random() * 60;
+                let y = Math.max(400, Math.min(800, lastY + (Math.random() - 0.5) * 150));
+                lastY = y;
+                
+                platforms.push({ x: lastGeneratedX, y: y, w: w, h: 45, isSolidFloor: true, biome: currentBiome, decor: createDecor(w, false, false, currentBiome.name) });
+                platforms.push({ x: lastGeneratedX - innerGap, y: y - 350 - Math.random()*80, w: w + innerGap + 20, h: 100, isCeiling: true, biome: currentBiome, decor: createDecor(w + innerGap + 20, true, false, currentBiome.name) });
+
+                if (Math.random() > 0.3) enemies.push(new Enemy(lastGeneratedX + 50 + Math.random()*(w-100), y - 40, 'melee'));
+                if (Math.random() > 0.5) shards.push(new Shard(lastGeneratedX + w/2, y - 60));
+                
+                lastGeneratedX += w + innerGap;
+            }
+        } else {
+            // Biome 3: Floating Islands Chunk
+            let gap = 120 + Math.random() * 100;
+            lastGeneratedX += gap;
+            
+            let islandLen = 4 + Math.floor(Math.random() * 3);
+            for(let i=0; i<islandLen; i++) {
+                let w = 200 + Math.random() * 250;
+                let innerGap = 130 + Math.random() * 100;
+                let y = Math.max(250, Math.min(900, lastY + (Math.random() - 0.5) * 250));
+                lastY = y;
+                
+                platforms.push({ x: lastGeneratedX, y: y, w: w, h: 40, isIsland: true, biome: currentBiome, decor: createDecor(w, false, true, currentBiome.name) });
+                if (Math.random() > 0.4) enemies.push(new Enemy(lastGeneratedX + 50, y - 40, Math.random() > 0.7 ? 'ranged' : 'melee'));
+                if (Math.random() > 0.5) shards.push(new Shard(lastGeneratedX + w/2, y - 60));
+                
+                lastGeneratedX += w + innerGap;
+            }
+        }
+
+        if (score >= nextBossScore && !bossInstance) {
+            bossInstance = new Boss(player.x + 1000, 450);
+            document.getElementById('boss-ui').classList.remove('hidden');
+            nextBossScore += 5000; // Schedule the next boss encounter
+        }
+    }
+}
+
+function reset() {
+    player = new Player();
+    score = 0; gameState = 'PLAYING'; lastGeneratedX = 1200; storyProgress = 0;
+    nextBossScore = 3200;
+    platforms = [{ x: 0, y: 550, w: 1200, h: 45, isSolidFloor: true, biome: BIOMES[0], decor: createDecor(1200, false, false, 'VOID') }];
+    enemies = []; bullets = []; particles = []; turrets = []; effects = []; shards = []; ambients = [];
+    bossInstance = null;
+    
+    party = [new Companion("ECHO", "#38bdf8", 0)];
+    
+    bgStars = [];
+    for(let i=0; i<200; i++) {
+        bgStars.push({
+            x: Math.random() * 3000,
+            y: Math.random() * 2000,
+            size: Math.random() * 2 + 0.5,
+            parallax: Math.random() * 0.05 + 0.01,
+            blinkOffset: Math.random() * Math.PI * 2,
+            color: Math.random() > 0.8 ? '#fcd34d' : '#bae6fd'
+        });
+    }
+
+    bgPlanets = [];
+    for(let i=0; i<6; i++) {
+        bgPlanets.push({
+            x: Math.random() * 3000,
+            y: Math.random() * 2000,
+            size: 15 + Math.random() * 40,
+            parallax: Math.random() * 0.02 + 0.005,
+            color: ['#1e1b4b', '#312e81', '#4c1d95', '#701a75'][Math.floor(Math.random()*4)],
+            ring: Math.random() > 0.7
+        });
+    }
+
+    document.getElementById('main-menu').classList.add('hidden');
+    document.getElementById('game-over').classList.add('hidden');
+    document.getElementById('hud').classList.remove('hidden');
+    document.getElementById('hotbar-container').classList.remove('hidden');
+    document.getElementById('boss-ui').classList.add('hidden');
+    document.getElementById('dialog-box').classList.add('hidden');
+    updatePartyUI();
+    checkStory();
+}
+
+function update() {
+    if (gameState === 'DIALOG' || gameState === 'MENU' || !player) return;
+    
+    frameCount++;
+    generateChunks();
+    player.update();
+    party.forEach(p => p.update(platforms));
+    if (bossInstance) bossInstance.update();
+    enemies.forEach(e => e.update());
+    shards.forEach(s => s.update());
+    shards = shards.filter(s => !s.collected);
+    ambients.forEach(a => a.update());
+    ambients = ambients.filter(a => a.life > 0);
+
+    // Spawn Ambients based on current biome
+    let currentBiomeIndex = Math.floor(player.x / 10000) % BIOMES.length;
+    let biomeName = BIOMES[currentBiomeIndex].name;
+    if (Math.random() < 0.03) {
+        let spawnX = player.x + (Math.random() > 0.5 ? 800 : -800);
+        let spawnY = player.y - 200 + Math.random() * 400;
+        if (biomeName === 'JUNGLE') ambients.push(new Ambient('bird', spawnX, spawnY - 300));
+        if (biomeName === 'DESERT') ambients.push(new Ambient('tumbleweed', spawnX, player.y)); // Visual only, doesn't need strict floor
+        if (biomeName === 'TUNDRA') ambients.push(new Ambient('snow', player.x + (Math.random()-0.5)*1000, player.y - 600));
+    }
+    
+    turrets.forEach((t, i) => {
+        t.life--;
+        if (t.cd > 0) t.cd--; else {
+            let target = enemies.find(e => Math.hypot(e.x - t.x, e.y - t.y) < 500) || bossInstance;
+            if (target) {
+                const angle = Math.atan2(target.y - t.y, target.x - t.x);
+                bullets.push({ x: t.x, y: t.y, vx: Math.cos(angle)*10, vy: Math.sin(angle)*10, life: 60, color: '#10b981', type: 'turret' });
+                t.cd = 20;
+            }
+        }
+        if (t.life <= 0) turrets.splice(i, 1);
+    });
+
+    effects.forEach((e, i) => { e.update(); if (e.life <= 0) effects.splice(i, 1); });
+    particles.forEach((p, i) => { p.update(); if (p.life <= 0) particles.splice(i, 1); });
+    
+    bullets.forEach((b, i) => {
+        b.x += b.vx; b.y += b.vy; b.life--;
+        if (b.type === 'enemy') {
+            if (Math.hypot(b.x - player.x, b.y - player.y) < 25 && player.invuln <= 0) {
+                player.health -= 12; player.invuln = 25; b.life = 0;
+            }
+        } else {
+            enemies.forEach(e => {
+                if (Math.hypot(b.x - e.x, b.y - e.y) < 30) {
+                    let dmg = b.type === 'heavy' ? 3.5 : (b.type === 'echo' ? 0.5 : (b.type === 'pierce' ? 2 : 1.5));
+                    e.takeDamage(dmg); b.life = 0;
+                    if (b.type === 'frost') effects.push(new SpellEffect(b.x, b.y, 'nova', '#60a5fa'));
+                }
+            });
+            if (bossInstance && Math.hypot(b.x - (bossInstance.x+80), b.y - (bossInstance.y+80)) < 85) {
+                let dmg = b.type === 'heavy' ? 5 : (b.type === 'echo' ? 0.5 : (b.type === 'pierce' ? 2.5 : 2));
+                bossInstance.takeDamage(dmg); b.life = 0;
+            }
+        }
+        if (b.life <= 0) bullets.splice(i, 1);
+    });
+
+    camera.x += (player.x - canvas.width/2 - camera.x) * 0.1;
+    camera.y += (player.y - canvas.height/2 - camera.y) * 0.1;
+
+    document.getElementById('health-fill').style.width = Math.max(0, player.health) + '%';
+    document.getElementById('mana-fill').style.width = player.mana + '%';
+    document.getElementById('score-display').innerText = score.toString().padStart(6, '0');
+    
+    if (player.health <= 0) {
+        gameState = 'GAMEOVER';
+        document.getElementById('game-over').classList.remove('hidden');
+        document.getElementById('final-stats').innerText = `Cycle terminated at ${score}`;
+    }
+    if (shake > 0) shake *= 0.9;
+    
+    document.querySelectorAll('.cooldown-overlay').forEach((o, i) => {
+        if (player.abilities[i]) o.style.height = (player.abilities[i].cd / player.abilities[i].maxCd * 100) + '%';
+    });
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!player && gameState !== 'MENU') return;
+    
+    bgStars.forEach(s => {
+        let relativeX = ((s.x - camera.x * s.parallax) % 3000 + 3000) % 3000 - 500;
+        let relativeY = ((s.y - camera.y * s.parallax) % 2000 + 2000) % 2000 - 500;
+        ctx.globalAlpha = 0.3 + Math.sin(frameCount * 0.05 + s.blinkOffset) * 0.3;
+        ctx.fillStyle = s.color || '#bae6fd';
+        ctx.beginPath(); ctx.arc(relativeX, relativeY, s.size, 0, Math.PI*2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    // Draw Sun (Distant, slow parallax)
+    let sunX = (canvas.width * 0.2) - (camera.x * 0.005);
+    let sunY = (canvas.height * 0.3) - (camera.y * 0.005);
+    
+    ctx.save();
+    ctx.translate(sunX, sunY);
+    let sunGlow = ctx.createRadialGradient(0, 0, 50, 0, 0, 300);
+    sunGlow.addColorStop(0, 'rgba(253, 224, 71, 0.4)');
+    sunGlow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sunGlow;
+    ctx.beginPath(); ctx.arc(0, 0, 300, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fef08a';
+    ctx.shadowBlur = 40; ctx.shadowColor = '#fde047';
+    ctx.beginPath(); ctx.arc(0, 0, 60, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+
+    // Draw Smaller Planets
+    bgPlanets.forEach(p => {
+        let relativeX = ((p.x - camera.x * p.parallax) % 3000 + 3000) % 3000 - 500;
+        let relativeY = ((p.y - camera.y * p.parallax) % 2000 + 2000) % 2000 - 500;
+        ctx.save();
+        ctx.translate(relativeX, relativeY);
+        if (p.ring) {
+            ctx.beginPath(); ctx.ellipse(0, 0, p.size * 2, p.size * 0.5, Math.PI/6, 0, Math.PI*2);
+            ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 4; ctx.stroke();
+        }
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(0, 0, p.size, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.beginPath(); ctx.arc(0, 0, p.size, Math.PI * 0.25, Math.PI * 1.25); ctx.fill();
+        ctx.restore();
+    });
+
+    // Draw Giant Shattered Planet
+    let planetX = (canvas.width * 0.8) - (camera.x * 0.015);
+    let planetY = (canvas.height * 0.25) - (camera.y * 0.015);
+    
+    ctx.save();
+    ctx.translate(planetX, planetY);
+    
+    // Planet Glow
+    let glow = ctx.createRadialGradient(0, 0, 100, 0, 0, 250);
+    glow.addColorStop(0, 'rgba(139, 92, 246, 0.15)');
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(0, 0, 250, 0, Math.PI*2); ctx.fill();
+    
+    // Planet body
+    ctx.beginPath(); ctx.arc(0, 0, 120, 0, Math.PI*2);
+    ctx.fillStyle = '#0f172a'; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = '#6366f1'; ctx.stroke();
+    
+    // Shattered glowing cracks
+    ctx.strokeStyle = '#8b5cf6';
+    ctx.lineWidth = 4;
+    ctx.shadowBlur = 8; ctx.shadowColor = '#8b5cf6';
+    ctx.beginPath();
+    ctx.moveTo(-117, 12); ctx.lineTo(-48, -18); ctx.lineTo(12, 36); ctx.lineTo(72, 12); ctx.lineTo(111, 39);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(12, 36); ctx.lineTo(42, -72); ctx.lineTo(54, -105);
+    ctx.stroke();
+    
+    // Minor shattered debris floating off
+    ctx.fillStyle = '#8b5cf6';
+    ctx.fillRect(-130, 20, 4, 4);
+    ctx.fillRect(60, -120, 5, 5);
+    ctx.fillRect(125, 45, 3, 3);
+    
+    ctx.restore();
+
+    ctx.save();
+    if (shake > 0.5) ctx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake);
+    ctx.translate(-camera.x, -camera.y);
+
+    // Draw Waterfalls Behind Platforms
+    platforms.forEach(p => {
+        if (p.decor && p.decor.waterfalls) {
+            p.decor.waterfalls.forEach(wf => {
+                ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+                ctx.fillRect(p.x + wf.relX, p.y, wf.width, 2000);
+                
+                // Falling water lines
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                for (let l=0; l<3; l++) {
+                    let fallY = (frameCount * (3 + l) + wf.relX * l) % 2000;
+                    ctx.fillRect(p.x + wf.relX + (l * wf.width / 3), p.y + fallY, 2, 20);
+                }
+            });
+        }
+    });
+
+    platforms.forEach(p => { 
+        let isCeiling = p.isCeiling || false;
+        let isSolidFloor = p.isSolidFloor || false;
+        let pBiome = p.biome || BIOMES[0];
+
+        if (p.decor && p.decor.rocks) {
+            p.decor.rocks.forEach(rock => {
+                ctx.fillStyle = pBiome.name === 'TUNDRA' ? '#e0f2fe' : pBiome.bot; 
+                ctx.strokeStyle = pBiome.name === 'TUNDRA' ? '#7dd3fc' : pBiome.top; 
+                ctx.lineWidth = 2;
+                ctx.beginPath(); 
+                if (isCeiling) {
+                    ctx.moveTo(p.x + rock.relX, p.y + p.h); 
+                    ctx.lineTo(p.x + rock.relX + rock.size/2, p.y + p.h + rock.size * (pBiome.name === 'TUNDRA' ? 2 : 1));
+                    ctx.lineTo(p.x + rock.relX + rock.size, p.y + p.h); 
+                } else {
+                    ctx.moveTo(p.x + rock.relX, p.y); 
+                    ctx.lineTo(p.x + rock.relX + rock.size/2, p.y - rock.size * (pBiome.name === 'TUNDRA' ? 2 : 1));
+                    ctx.lineTo(p.x + rock.relX + rock.size, p.y); 
+                }
+                ctx.closePath(); ctx.fill(); ctx.stroke();
+            });
+        }
+
+        if (p.decor && p.decor.skulls) {
+            p.decor.skulls.forEach(sk => {
+                ctx.fillStyle = '#e2e8f0';
+                ctx.beginPath(); ctx.arc(p.x + sk.relX, p.y - 4, 6, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#020617';
+                ctx.fillRect(p.x + sk.relX - 3, p.y - 6, 2, 2);
+                ctx.fillRect(p.x + sk.relX + 1, p.y - 6, 2, 2);
+            });
+        }
+
+        if (p.decor && p.decor.trees) {
+            p.decor.trees.forEach(t => {
+                ctx.fillStyle = '#78350f'; // Trunk
+                ctx.fillRect(p.x + t.relX - 4, p.y - t.h, 8, t.h);
+                ctx.fillStyle = '#14532d'; // Leaves
+                ctx.beginPath(); ctx.arc(p.x + t.relX, p.y - t.h, 20, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(p.x + t.relX - 10, p.y - t.h + 10, 15, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(p.x + t.relX + 10, p.y - t.h + 10, 15, 0, Math.PI*2); ctx.fill();
+            });
+        }
+
+        if (p.decor && p.decor.bushes) {
+            p.decor.bushes.forEach(b => {
+                ctx.fillStyle = '#166534';
+                ctx.beginPath(); ctx.arc(p.x + b.relX, p.y, b.s, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(p.x + b.relX - b.s/2, p.y + 2, b.s*0.8, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(p.x + b.relX + b.s/2, p.y + 2, b.s*0.8, 0, Math.PI*2); ctx.fill();
+            });
+        }
+
+        if (p.decor && p.decor.cacti) {
+            p.decor.cacti.forEach(c => {
+                ctx.fillStyle = '#15803d';
+                ctx.fillRect(p.x + c.relX - 4, p.y - c.h, 8, c.h);
+                ctx.fillRect(p.x + c.relX - 12, p.y - c.h + 10, 8, 4);
+                ctx.fillRect(p.x + c.relX - 12, p.y - c.h + 2, 4, 12);
+                ctx.fillRect(p.x + c.relX + 4, p.y - c.h + 20, 8, 4);
+                ctx.fillRect(p.x + c.relX + 8, p.y - c.h + 12, 4, 12);
+            });
+        }
+        
+        if (p.decor && p.decor.mushrooms && !isCeiling) {
+            p.decor.mushrooms.forEach(m => {
+                ctx.shadowBlur = 10; ctx.shadowColor = m.color;
+                // Stem
+                ctx.fillStyle = '#cbd5e1';
+                ctx.fillRect(p.x + m.relX - 1, p.y - m.size, 2, m.size);
+                // Cap
+                ctx.fillStyle = m.color;
+                ctx.beginPath(); ctx.arc(p.x + m.relX, p.y - m.size, m.size, Math.PI, 0); ctx.fill();
+                ctx.shadowBlur = 0;
+            });
+        }
+
+        if (p.decor && p.decor.crystals && !isCeiling) {
+            p.decor.crystals.forEach(c => {
+                ctx.shadowBlur = 15; ctx.shadowColor = c.color;
+                // Left Facet
+                ctx.fillStyle = c.color; 
+                ctx.beginPath(); ctx.moveTo(p.x + c.relX, p.y); 
+                ctx.lineTo(p.x + c.relX - c.size/3, p.y - c.size);
+                ctx.lineTo(p.x + c.relX, p.y - c.size*1.3); 
+                ctx.closePath(); ctx.fill(); 
+                // Right Facet (Shaded)
+                ctx.shadowBlur = 0;
+                ctx.beginPath(); ctx.moveTo(p.x + c.relX, p.y);
+                ctx.lineTo(p.x + c.relX, p.y - c.size*1.3);
+                ctx.lineTo(p.x + c.relX + c.size/3, p.y - c.size*0.9);
+                ctx.closePath(); ctx.fill();
+                ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fill();
+            });
+        }
+
+        // Render Platform Body based on Biome Colors
+        if (isCeiling) {
+            ctx.fillStyle = pBiome.bot; 
+            ctx.fillRect(p.x, p.y - 1500, p.w, p.h + 1500); 
+            ctx.fillStyle = pBiome.top; ctx.fillRect(p.x, p.y + p.h - 4, p.w, 4);
+        } else if (isSolidFloor) {
+            ctx.fillStyle = pBiome.bot; 
+            ctx.fillRect(p.x, p.y, p.w, 1500); 
+            ctx.fillStyle = pBiome.top; ctx.fillRect(p.x, p.y, p.w, 4);
+            if (p.decor && p.decor.hasGrass) {
+                ctx.fillStyle = pBiome.grass;
+                ctx.fillRect(p.x, p.y, p.w, 6);
+            }
+        } else {
+            ctx.fillStyle = pBiome.bot; 
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p.x + p.w, p.y);
+            ctx.lineTo(p.x + p.w, p.y + p.h);
+            
+            let depth = 50 + (p.w % 50);
+            let segments = Math.max(3, Math.floor(p.w / 40));
+            
+            for(let i = segments - 1; i >= 1; i--) {
+                let px = p.x + (p.w * (i / segments));
+                let py = p.y + p.h + depth * (0.5 + 0.5 * Math.sin(p.x + i * 4)); 
+                ctx.lineTo(px, py);
+            }
+            
+            ctx.lineTo(p.x, p.y + p.h);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = pBiome.top; ctx.fillRect(p.x, p.y, p.w, 4);
+            if (p.decor && p.decor.hasGrass) {
+                ctx.fillStyle = pBiome.grass;
+                ctx.fillRect(p.x, p.y, p.w, 6);
+            }
+        }
+
+        // Draw Hanging Vines
+        if (p.decor && p.decor.vines) {
+            p.decor.vines.forEach(vine => {
+                ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 3; ctx.beginPath(); 
+                let currentY = p.y + p.h; 
+                let currentX = p.x + vine.relX;
+                ctx.moveTo(currentX, currentY);
+                for(let s=0; s<vine.segments; s++) {
+                    let nextY = currentY + (vine.length / vine.segments);
+                    let nextX = currentX + Math.sin(frameCount * 0.02 + vine.offset + s) * 4;
+                    ctx.lineTo(nextX, nextY); currentX = nextX; currentY = nextY;
+                }
+                ctx.stroke();
+                ctx.fillStyle = '#6366f1'; ctx.shadowBlur = 10; ctx.shadowColor = '#6366f1';
+                ctx.beginPath(); ctx.arc(currentX, currentY, 2, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
+            });
+        }
+    });
+
+    shards.forEach(s => s.draw(ctx));
+    ambients.forEach(a => a.draw(ctx));
+    enemies.forEach(e => e.draw(ctx));
+    if (bossInstance) bossInstance.draw(ctx);
+    party.forEach(p => p.draw(ctx));
+    
+    turrets.forEach(t => { ctx.fillStyle = '#10b981'; ctx.shadowBlur = 15; ctx.shadowColor = '#10b981'; ctx.fillRect(t.x-10, t.y-10, 20, 20); });
+    effects.forEach(e => e.draw(ctx));
+    bullets.forEach(b => {
+        ctx.fillStyle = b.color; ctx.shadowBlur = 12; ctx.shadowColor = b.color;
+        ctx.beginPath(); 
+        if (b.type === 'heavy') {
+            ctx.rect(b.x - 6, b.y - 6, 12, 12); ctx.fill();
+        } else if (b.type === 'echo' || b.type === 'pierce') {
+            ctx.ellipse(b.x, b.y, b.type === 'pierce' ? 12 : 8, b.type === 'pierce' ? 3 : 2, Math.atan2(b.vy, b.vx), 0, Math.PI*2); ctx.fill();
+        } else {
+            ctx.arc(b.x, b.y, b.type === 'bolt' ? 5 : 8, 0, Math.PI*2); ctx.fill();
+        }
+    });
+    
+    if (player) player.draw(ctx);
+    particles.forEach(p => p.draw(ctx));
+    ctx.restore();
+}
+
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+
+window.addEventListener('resize', resize);
+resize();
+document.getElementById('start-btn').addEventListener('click', reset);
+document.getElementById('retry-btn').addEventListener('click', reset);
+
+loop();
+</script>
+</body>
+</html>
